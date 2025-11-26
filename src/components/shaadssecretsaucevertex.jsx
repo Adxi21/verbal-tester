@@ -22,7 +22,7 @@ export default function ShaadsSecretSauceVertex() {
     
     try {
       // Check admin status
-      const adminResponse = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
+      const adminResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
       if (adminResponse.ok) {
         const adminData = await adminResponse.json();
         if (!adminData.is_admin) {
@@ -33,21 +33,21 @@ export default function ShaadsSecretSauceVertex() {
       }
 
       // Fetch all registrations
-      const regResponse = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/admin/all-registrations`);
+      const regResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/all-registrations`);
       if (regResponse.ok) {
         const regData = await regResponse.json();
         setRegistrations(regData.registrations || []);
       }
 
       // Fetch analytics
-      const analyticsResponse = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/admin/analytics`);
+      const analyticsResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/analytics`);
       if (analyticsResponse.ok) {
         const analyticsData = await analyticsResponse.json();
         setAnalytics(analyticsData.analytics || []);
       }
 
       // Fetch detailed analytics
-      const detailedResponse = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/admin/detailed-analytics`);
+      const detailedResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/detailed-analytics`);
       if (detailedResponse.ok) {
         const detailedData = await detailedResponse.json();
         setDetailedAnalytics(detailedData);
@@ -62,7 +62,7 @@ export default function ShaadsSecretSauceVertex() {
   const updateRegistration = async (index) => {
     const registration = registrations[index];
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/update-registration`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/update-registration`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(registration)
@@ -85,7 +85,7 @@ export default function ShaadsSecretSauceVertex() {
     if (!confirm(`Are you sure you want to delete registration for ${registration.name}?`)) return;
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/delete-registration`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/delete-registration`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -292,7 +292,7 @@ export default function Registrations() {
 
     // Send to FastAPI server
     try {
-      const response = await fetch('http://13.232.192.197:8000/api/registration', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/registration`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

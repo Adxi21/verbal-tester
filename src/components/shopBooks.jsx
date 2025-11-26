@@ -80,7 +80,7 @@ export default function ShopBooks() {
 
         console.log('Sending order data:', orderData);  // Debug log
         
-        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/shop-order`, {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

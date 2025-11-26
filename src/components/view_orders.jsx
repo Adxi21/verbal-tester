@@ -15,7 +15,7 @@ export default function ViewOrders() {
   const fetchOrders = async () => {
     try {
       const userEmail = user?.emailAddresses?.[0]?.emailAddress;
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/shop-orders/${userEmail}`);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-orders/${userEmail}`);
       if (response.ok) {
         const data = await response.json();
         setOrders(data.orders || []);
@@ -31,7 +31,7 @@ export default function ViewOrders() {
     if (!confirm("Are you sure you want to delete this order?")) return;
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/shop-order`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-order`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

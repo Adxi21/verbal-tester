@@ -16,7 +16,7 @@ export default function Homepage() {
 
   const checkAdminStatus = async () => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
       if (response.ok) {
         const data = await response.json();
         setIsAdmin(data.is_admin);

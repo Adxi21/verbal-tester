@@ -17,7 +17,7 @@ export default function CRUD_Registrations() {
     if (!user?.emailAddresses?.[0]?.emailAddress) return;
     
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/registrations/${user.emailAddresses[0].emailAddress}`);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/registrations/${user.emailAddresses[0].emailAddress}`);
       if (response.ok) {
         const data = await response.json();
         setRegistrations(data.registrations || []);
@@ -32,7 +32,7 @@ export default function CRUD_Registrations() {
   const updateRegistration = async (index) => {
     const registration = registrations[index];
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/update-registration`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/update-registration`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(registration)
@@ -55,7 +55,7 @@ export default function CRUD_Registrations() {
     if (!confirm(`Are you sure you want to delete registration for ${registration.name}?`)) return;
 
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/delete-registration`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/delete-registration`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
