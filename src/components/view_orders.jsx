@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserButton, useUser } from "@clerk/clerk-react";
+import supabase from '../supabaseClient';
 
 export default function ViewOrders() {
   const navigate = useNavigate();
@@ -15,11 +16,12 @@ export default function ViewOrders() {
   const fetchOrders = async () => {
     try {
       const userEmail = user?.emailAddresses?.[0]?.emailAddress;
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-orders/${userEmail}`);
-      if (response.ok) {
-        const data = await response.json();
-        setOrders(data.orders || []);
-      }
+      const { data, error } = await supabase
+        .from('shop')
+        .select('*')
+        .eq('email_id', userEmail);
+      if (error) throw error;
+      setOrders(data || []);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -31,25 +33,17 @@ export default function ViewOrders() {
     if (!confirm("Are you sure you want to delete this order?")) return;
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-order`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email_id: order.email_id,
-          name: order.name,
-          contact: order.contact,
-          book_name: order.book_name
-        })
-      });
+      const { error } = await supabase.from('shop')
+        .delete()
+        .eq('email_id', order.email_id)
+        .eq('name', order.name)
+        .eq('contact', order.contact)
+        .eq('book_name', order.book_name);
 
-      if (response.ok) {
-        alert("Order deleted successfully!");
-        fetchOrders();
-      } else {
-        throw new Error('Failed to delete order');
-      }
+      if (error) throw error;
+
+      alert("Order deleted successfully!");
+      fetchOrders();
     } catch (error) {
       console.error('Error deleting order:', error);
       alert("Error deleting order. Please try again.");

@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserButton, useUser } from "@clerk/clerk-react";
-import supabase from '../supabaseClient';
 
 export default function CRUD_Registrations() {
   const navigate = useNavigate();
@@ -16,29 +15,13 @@ export default function CRUD_Registrations() {
 
   const fetchRegistrations = async () => {
     if (!user?.emailAddresses?.[0]?.emailAddress) return;
-    const email = user.emailAddresses[0].emailAddress;
-
+    
     try {
-      const { data: regs, error: regError } = await supabase
-        .from('event_registrations')
-        .select('*')
-        .eq('bookers_email', email);
-
-      if (regError) throw regError;
-
-      const { data: dates, error: dateError } = await supabase
-        .from('event_dates')
-        .select('*')
-        .eq('email_id', email);
-
-      if (dateError) throw dateError;
-
-      const combined = regs.map(reg => ({
-        ...reg,
-        datePreferences: dates.filter(d => d.name === reg.name && d.contact === reg.contact)
-      }));
-
-      setRegistrations(combined);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/registrations/${user.emailAddresses[0].emailAddress}`);
+      if (response.ok) {
+        const data = await response.json();
+        setRegistrations(data.registrations || []);
+      }
     } catch (error) {
       console.error('Error fetching registrations:', error);
     } finally {
@@ -47,57 +30,20 @@ export default function CRUD_Registrations() {
   };
 
   const updateRegistration = async (index) => {
-    const reg = registrations[index];
+    const registration = registrations[index];
     try {
-      const { error: regError } = await supabase
-        .from('event_registrations')
-        .update({
-          age: reg.age,
-          gender: reg.gender,
-          origin: reg.origin,
-          travelmode: reg.travelmode,
-          departure_from_home: reg.departure_from_home,
-          arrival_at_venue: reg.arrival_at_venue,
-          accommodation: reg.accommodation,
-          cot_required: reg.cot_required,
-          difficultyclimbingstairs: reg.difficultyclimbingstairs,
-          recordings: reg.recordings,
-          recordprograms: reg.recordprograms,
-          specialrequests: reg.specialrequests
-        })
-        .eq('bookers_email', reg.bookers_email)
-        .eq('bookers_phone', reg.bookers_phone)
-        .eq('name', reg.name);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/update-registration`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(registration)
+      });
 
-      if (regError) throw regError;
-
-      if (reg.datePreferences?.length) {
-        for (const dp of reg.datePreferences) {
-          const { error: dateError } = await supabase
-            .from('event_dates')
-            .update({
-              morning_tea: dp.morning_tea,
-              morning_coffee: dp.morning_coffee,
-              afternoon_tea: dp.afternoon_tea,
-              afternoon_coffee: dp.afternoon_coffee,
-              breakfast: dp.breakfast,
-              lunch: dp.lunch,
-              dinner: dp.dinner,
-              packed_lunch: dp.packed_lunch,
-              packed_dinner: dp.packed_dinner,
-              departuretime: dp.departuretime
-            })
-            .eq('email_id', dp.email_id)
-            .eq('contact', dp.contact)
-            .eq('name', dp.name)
-            .eq('date', dp.date);
-
-          if (dateError) throw dateError;
-        }
+      if (response.ok) {
+        alert('✅ Registration updated successfully!');
+        setEditingIndex(-1);
+      } else {
+        alert('❌ Failed to update registration');
       }
-
-      alert('✅ Registration updated successfully!');
-      setEditingIndex(-1);
     } catch (error) {
       console.error('Error updating registration:', error);
       alert('❌ Error updating registration');
@@ -105,25 +51,26 @@ export default function CRUD_Registrations() {
   };
 
   const deleteRegistration = async (index) => {
-    const reg = registrations[index];
-    if (!confirm(`Are you sure you want to delete registration for ${reg.name}?`)) return;
+    const registration = registrations[index];
+    if (!confirm(`Are you sure you want to delete registration for ${registration.name}?`)) return;
 
     try {
-      await supabase.from('event_dates')
-        .delete()
-        .eq('email_id', reg.bookers_email)
-        .eq('name', reg.name);
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/delete-registration`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookers_email: registration.bookers_email,
+          bookers_phone: registration.bookers_phone,
+          name: registration.name
+        })
+      });
 
-      const { error } = await supabase.from('event_registrations')
-        .delete()
-        .eq('bookers_email', reg.bookers_email)
-        .eq('bookers_phone', reg.bookers_phone)
-        .eq('name', reg.name);
-
-      if (error) throw error;
-
-      alert('✅ Registration deleted successfully!');
-      fetchRegistrations();
+      if (response.ok) {
+        alert('✅ Registration deleted successfully!');
+        fetchRegistrations(); // Refresh the list
+      } else {
+        alert('❌ Failed to delete registration');
+      }
     } catch (error) {
       console.error('Error deleting registration:', error);
       alert('❌ Error deleting registration');
@@ -131,7 +78,7 @@ export default function CRUD_Registrations() {
   };
 
   const updateField = (index, field, value) => {
-    setRegistrations(prev => prev.map((reg, i) =>
+    setRegistrations(prev => prev.map((reg, i) => 
       i === index ? { ...reg, [field]: value } : reg
     ));
   };
@@ -158,11 +105,12 @@ export default function CRUD_Registrations() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-100 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-4">
-              <button
+              <button 
                 onClick={() => navigate('/registrations')}
                 className="flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
               >
@@ -175,6 +123,7 @@ export default function CRUD_Registrations() {
         </div>
       </header>
 
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
         {registrations.length === 0 ? (
           <div className="text-center py-16">
@@ -196,9 +145,10 @@ export default function CRUD_Registrations() {
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Event Registrations</h1>
               <p className="text-gray-600">Manage your registrations and daily preferences</p>
             </div>
-
+            
             {registrations.map((reg, index) => (
               <div key={index} className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                {/* Person Header */}
                 <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white p-6">
                   <div className="flex justify-between items-center">
                     <div>
@@ -244,21 +194,37 @@ export default function CRUD_Registrations() {
 
                 <div className="p-6">
                   {editingIndex === index ? (
+                    // Edit Mode
                     <div className="space-y-6">
+                      {/* Basic Info */}
                       <div className="bg-gray-50 rounded-lg p-4">
                         <h4 className="text-lg font-semibold mb-4 text-gray-800">📋 Basic Information</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                            <input type="text" value={reg.name} readOnly className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" />
+                            <input
+                              type="text"
+                              value={reg.name}
+                              readOnly
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed"
+                            />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
-                            <input type="number" value={reg.age || ''} onChange={(e) => updateField(index, 'age', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
+                            <input
+                              type="number"
+                              value={reg.age || ''}
+                              onChange={(e) => updateField(index, 'age', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
-                            <select value={reg.gender || ''} onChange={(e) => updateField(index, 'gender', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <select
+                              value={reg.gender || ''}
+                              onChange={(e) => updateField(index, 'gender', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            >
                               <option value="">Select Gender</option>
                               <option value="Male">Male</option>
                               <option value="Female">Female</option>
@@ -267,17 +233,27 @@ export default function CRUD_Registrations() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Origin</label>
-                            <input type="text" value={reg.origin || ''} onChange={(e) => updateField(index, 'origin', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
+                            <input
+                              type="text"
+                              value={reg.origin || ''}
+                              onChange={(e) => updateField(index, 'origin', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
                           </div>
                         </div>
                       </div>
 
+                      {/* Travel Details */}
                       <div className="bg-yellow-50 rounded-lg p-4">
                         <h4 className="text-lg font-semibold mb-4 text-gray-800">🚗 Travel Information</h4>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Travel Mode</label>
-                            <select value={reg.travelmode || ''} onChange={(e) => updateField(index, 'travelmode', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <select
+                              value={reg.travelmode || ''}
+                              onChange={(e) => updateField(index, 'travelmode', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            >
                               <option value="">Select Mode</option>
                               <option value="Bus">Bus</option>
                               <option value="Train">Train</option>
@@ -287,42 +263,81 @@ export default function CRUD_Registrations() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Departure Time</label>
-                            <input type="time" value={reg.departure_from_home || ''} onChange={(e) => updateField(index, 'departure_from_home', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
+                            <input
+                              type="time"
+                              value={reg.departure_from_home || ''}
+                              onChange={(e) => updateField(index, 'departure_from_home', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Arrival Time</label>
-                            <input type="time" value={reg.arrival_at_venue || ''} onChange={(e) => updateField(index, 'arrival_at_venue', e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" />
+                            <input
+                              type="time"
+                              value={reg.arrival_at_venue || ''}
+                              onChange={(e) => updateField(index, 'arrival_at_venue', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
                           </div>
                         </div>
                       </div>
 
+                      {/* Preferences */}
                       <div className="bg-green-50 rounded-lg p-4">
                         <h4 className="text-lg font-semibold mb-4 text-gray-800">⚙️ Preferences</h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <label className="flex items-center p-2 border rounded-lg hover:bg-white transition-colors">
-                            <input type="checkbox" checked={reg.accommodation || false} onChange={(e) => updateField(index, 'accommodation', e.target.checked)} className="mr-3 h-4 w-4 text-indigo-600" />
+                            <input
+                              type="checkbox"
+                              checked={reg.accommodation || false}
+                              onChange={(e) => updateField(index, 'accommodation', e.target.checked)}
+                              className="mr-3 h-4 w-4 text-indigo-600"
+                            />
                             🏠 Accommodation
                           </label>
                           <label className="flex items-center p-2 border rounded-lg hover:bg-white transition-colors">
-                            <input type="checkbox" checked={reg.cot_required || false} onChange={(e) => updateField(index, 'cot_required', e.target.checked)} className="mr-3 h-4 w-4 text-indigo-600" />
+                            <input
+                              type="checkbox"
+                              checked={reg.cot_required || false}
+                              onChange={(e) => updateField(index, 'cot_required', e.target.checked)}
+                              className="mr-3 h-4 w-4 text-indigo-600"
+                            />
                             🛏️ Cot Required
                           </label>
                           <label className="flex items-center p-2 border rounded-lg hover:bg-white transition-colors">
-                            <input type="checkbox" checked={reg.difficultyclimbingstairs || false} onChange={(e) => updateField(index, 'difficultyclimbingstairs', e.target.checked)} className="mr-3 h-4 w-4 text-indigo-600" />
+                            <input
+                              type="checkbox"
+                              checked={reg.difficultyclimbingstairs || false}
+                              onChange={(e) => updateField(index, 'difficultyclimbingstairs', e.target.checked)}
+                              className="mr-3 h-4 w-4 text-indigo-600"
+                            />
                             🚶 Stair Help
                           </label>
                           <label className="flex items-center p-2 border rounded-lg hover:bg-white transition-colors">
-                            <input type="checkbox" checked={reg.recordings || false} onChange={(e) => updateField(index, 'recordings', e.target.checked)} className="mr-3 h-4 w-4 text-indigo-600" />
+                            <input
+                              type="checkbox"
+                              checked={reg.recordings || false}
+                              onChange={(e) => updateField(index, 'recordings', e.target.checked)}
+                              className="mr-3 h-4 w-4 text-indigo-600"
+                            />
                             📹 Recordings
                           </label>
                         </div>
                       </div>
 
+                      {/* Special Requests */}
                       <div className="bg-purple-50 rounded-lg p-4">
                         <h4 className="text-lg font-semibold mb-4 text-gray-800">💬 Special Requests</h4>
-                        <textarea value={reg.specialrequests || ''} onChange={(e) => updateField(index, 'specialrequests', e.target.value)} placeholder="Any special requests..." className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" rows="3" />
+                        <textarea
+                          value={reg.specialrequests || ''}
+                          onChange={(e) => updateField(index, 'specialrequests', e.target.value)}
+                          placeholder="Any special requests or requirements..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                          rows="3"
+                        />
                       </div>
 
+                      {/* Date Preferences */}
                       {reg.datePreferences && reg.datePreferences.length > 0 && (
                         <div className="bg-blue-50 rounded-lg p-4">
                           <h4 className="text-lg font-semibold mb-4 text-gray-800">📅 Daily Meal & Beverage Preferences</h4>
@@ -330,29 +345,117 @@ export default function CRUD_Registrations() {
                             {reg.datePreferences.map((datePref, dateIndex) => (
                               <div key={dateIndex} className="bg-white border border-gray-200 rounded-lg p-4">
                                 <h5 className="font-medium mb-3 text-indigo-600">📆 {datePref.date}</h5>
+                                
+                                {/* Beverages */}
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                                  {['morning_tea', 'morning_coffee', 'afternoon_tea', 'afternoon_coffee'].map(field => (
-                                    <div key={field}>
-                                      <label className="block text-sm font-medium mb-1">{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</label>
-                                      <select value={datePref[field] || 'no'} onChange={(e) => updateDatePreference(index, dateIndex, field, e.target.value)} className="w-full px-2 py-1 border border-gray-300 rounded text-sm">
-                                        <option value="no">No</option>
-                                        <option value="with">With Sugar</option>
-                                        <option value="without">Without Sugar</option>
-                                      </select>
-                                    </div>
-                                  ))}
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">☕ Morning Tea</label>
+                                    <select
+                                      value={datePref.morning_tea || 'no'}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'morning_tea', e.target.value)}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                    >
+                                      <option value="no">No</option>
+                                      <option value="with">With Sugar</option>
+                                      <option value="without">Without Sugar</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">☕ Morning Coffee</label>
+                                    <select
+                                      value={datePref.morning_coffee || 'no'}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'morning_coffee', e.target.value)}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                    >
+                                      <option value="no">No</option>
+                                      <option value="with">With Sugar</option>
+                                      <option value="without">Without Sugar</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">🫖 Afternoon Tea</label>
+                                    <select
+                                      value={datePref.afternoon_tea || 'no'}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'afternoon_tea', e.target.value)}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                    >
+                                      <option value="no">No</option>
+                                      <option value="with">With Sugar</option>
+                                      <option value="without">Without Sugar</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">☕ Afternoon Coffee</label>
+                                    <select
+                                      value={datePref.afternoon_coffee || 'no'}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'afternoon_coffee', e.target.value)}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                    >
+                                      <option value="no">No</option>
+                                      <option value="with">With Sugar</option>
+                                      <option value="without">Without Sugar</option>
+                                    </select>
+                                  </div>
                                 </div>
+
+                                {/* Meals */}
                                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-                                  {['breakfast', 'lunch', 'dinner', 'packed_lunch', 'packed_dinner'].map(meal => (
-                                    <label key={meal} className="flex items-center p-2 border rounded hover:bg-gray-50">
-                                      <input type="checkbox" checked={datePref[meal] || false} onChange={(e) => updateDatePreference(index, dateIndex, meal, e.target.checked)} className="mr-2 h-4 w-4 text-indigo-600" />
-                                      {meal.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                                    </label>
-                                  ))}
+                                  <label className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <input
+                                      type="checkbox"
+                                      checked={datePref.breakfast || false}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'breakfast', e.target.checked)}
+                                      className="mr-2 h-4 w-4 text-indigo-600"
+                                    />
+                                    🍳 Breakfast
+                                  </label>
+                                  <label className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <input
+                                      type="checkbox"
+                                      checked={datePref.lunch || false}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'lunch', e.target.checked)}
+                                      className="mr-2 h-4 w-4 text-indigo-600"
+                                    />
+                                    🍽️ Lunch
+                                  </label>
+                                  <label className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <input
+                                      type="checkbox"
+                                      checked={datePref.dinner || false}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'dinner', e.target.checked)}
+                                      className="mr-2 h-4 w-4 text-indigo-600"
+                                    />
+                                    🍛 Dinner
+                                  </label>
+                                  <label className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <input
+                                      type="checkbox"
+                                      checked={datePref.packed_lunch || false}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'packed_lunch', e.target.checked)}
+                                      className="mr-2 h-4 w-4 text-indigo-600"
+                                    />
+                                    📦 Packed Lunch
+                                  </label>
+                                  <label className="flex items-center p-2 border rounded hover:bg-gray-50">
+                                    <input
+                                      type="checkbox"
+                                      checked={datePref.packed_dinner || false}
+                                      onChange={(e) => updateDatePreference(index, dateIndex, 'packed_dinner', e.target.checked)}
+                                      className="mr-2 h-4 w-4 text-indigo-600"
+                                    />
+                                    📦 Packed Dinner
+                                  </label>
                                 </div>
+
+                                {/* Departure Time */}
                                 <div>
                                   <label className="block text-sm font-medium mb-1">🕐 Departure Time</label>
-                                  <input type="time" value={datePref.departuretime || ''} onChange={(e) => updateDatePreference(index, dateIndex, 'departuretime', e.target.value)} className="px-2 py-1 border border-gray-300 rounded text-sm" />
+                                  <input
+                                    type="time"
+                                    value={datePref.departuretime || ''}
+                                    onChange={(e) => updateDatePreference(index, dateIndex, 'departuretime', e.target.value)}
+                                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+                                  />
                                 </div>
                               </div>
                             ))}
@@ -361,14 +464,17 @@ export default function CRUD_Registrations() {
                       )}
                     </div>
                   ) : (
+                    // View Mode
                     <div className="space-y-6">
+                      {/* Basic Info */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div className="flex items-center"><span className="font-medium mr-2">👤 Age:</span> {reg.age || 'N/A'}</div>
                         <div className="flex items-center"><span className="font-medium mr-2">⚧️ Gender:</span> {reg.gender || 'N/A'}</div>
                         <div className="flex items-center"><span className="font-medium mr-2">📞 Contact:</span> {reg.contact}</div>
                         <div className="flex items-center"><span className="font-medium mr-2">📍 Origin:</span> {reg.origin || 'N/A'}</div>
                       </div>
-
+                      
+                      {/* Travel Info */}
                       <div className="bg-yellow-50 rounded-lg p-4">
                         <h4 className="font-medium text-gray-800 mb-2">🚗 Travel Information</h4>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -378,6 +484,7 @@ export default function CRUD_Registrations() {
                         </div>
                       </div>
 
+                      {/* Preferences */}
                       <div className="flex flex-wrap gap-2">
                         {reg.accommodation && <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">🏠 Accommodation</span>}
                         {reg.cot_required && <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">🛏️ Cot</span>}
@@ -385,6 +492,7 @@ export default function CRUD_Registrations() {
                         {reg.recordings && <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">📹 Recordings</span>}
                       </div>
 
+                      {/* Special Requests */}
                       {reg.specialrequests && (
                         <div className="bg-purple-50 p-4 rounded-lg">
                           <span className="font-medium text-sm">💬 Special Requests: </span>
@@ -392,6 +500,7 @@ export default function CRUD_Registrations() {
                         </div>
                       )}
 
+                      {/* Date Preferences */}
                       {reg.datePreferences && reg.datePreferences.length > 0 && (
                         <div className="bg-blue-50 rounded-lg p-4">
                           <h4 className="font-medium text-sm mb-3">📅 Daily Preferences</h4>

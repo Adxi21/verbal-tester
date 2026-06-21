@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserButton, useUser } from "@clerk/clerk-react";
+import supabase from '../supabaseClient';
 
 const availableBooks = [
   { name: "Lakshyartha Ramayana", languages: ["Marathi", "Kannada"] },
@@ -70,30 +71,14 @@ export default function ShopBooks() {
 
     try {
       for (const book of selectedBooks) {
-        const orderData = {
+        const { error } = await supabase.from('shop').insert({
           email_id: userEmail,
           name: formData.name,
           contact: formData.contact,
           book_name: book.bookName,
           language: book.language
-        };
-
-        console.log('Sending order data:', orderData);  // Debug log
-        
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/shop-order`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(orderData)
         });
-
-        const responseData = await response.json();
-        console.log('Response:', responseData);  // Debug log
-
-        if (!response.ok) {
-          throw new Error(responseData.message || 'Failed to place order');
-        }
+        if (error) throw error;
       }
 
       alert("Book order placed successfully!");
@@ -102,7 +87,7 @@ export default function ShopBooks() {
       setShowOrderSummary(false);
     } catch (error) {
       console.error('Error placing order:', error);
-      alert("Error placing order. Please try again.");
+      alert("Error placing order: " + (error.message || error));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,6 +1,7 @@
 import { useUser, UserButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import supabase from '../supabaseClient';
 
 export default function Homepage() {
   const { user } = useUser();
@@ -16,10 +17,14 @@ export default function Homepage() {
 
   const checkAdminStatus = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
-      if (response.ok) {
-        const data = await response.json();
-        setIsAdmin(data.is_admin);
+      const { data, error } = await supabase
+        .from('admins')
+        .select('control_type')
+        .eq('email', user.emailAddresses[0].emailAddress)
+        .single();
+
+      if (!error && data) {
+        setIsAdmin(true);
         setControlType(data.control_type);
       }
     } catch (error) {

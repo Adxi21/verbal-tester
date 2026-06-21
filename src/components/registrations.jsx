@@ -5,6 +5,7 @@ import { DayPicker } from "react-day-picker";
 import "react-day-picker/dist/style.css";
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import supabase from '../supabaseClient';
 
 const createParticipant = () => ({
   id: Date.now() + Math.random(),
@@ -290,27 +291,63 @@ export default function Registrations() {
       })
     };
 
-    // Send to FastAPI server
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/registration`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(registrationData)
-      });
+      for (const participant of registrationData.participants) {
+        const actualDates = participant.attendingDates;
 
-      if (response.ok) {
-        const result = await response.json();
-        alert("Registration submitted successfully to FastAPI server!");
-        console.log("Server response:", result);
-        setShowPreview(false);
-      } else {
-        throw new Error('Failed to submit registration');
+        // Insert into event_registrations
+        const { error: regError } = await supabase.from('event_registrations').insert({
+          bookers_email: registrationData.contactEmail,
+          bookers_phone: registrationData.contactNumber,
+          event_name: registrationData.event,
+          name: participant.name,
+          age: participant.age || 0,
+          gender: participant.gender || '',
+          origin: participant.origin || '',
+          contact: participant.contactNumber || '',
+          attending_dates: actualDates,
+          travelmode: participant.travelMode,
+          departure_from_home: participant.travelDetails.departureFromHome,
+          arrival_at_venue: participant.travelDetails.arrivalAtVenue,
+          accommodation: participant.accommodation,
+          cot_required: participant.cot,
+          difficultyclimbingstairs: participant.difficultyClimbingStairs,
+          localassistance: participant.localAssistance,
+          localassistanceperson: participant.localAssistancePerson || '',
+          recordings: participant.recordings,
+          recordprograms: participant.recordingPrograms || '',
+          specialrequests: participant.specialRequests || ''
+        });
+
+        if (regError) throw regError;
+
+        // Insert date preferences
+        for (const datePref of participant.datePreferences) {
+          const { error: dateError } = await supabase.from('event_dates').insert({
+            email_id: registrationData.contactEmail,
+            contact: participant.contactNumber || '',
+            name: participant.name,
+            date: datePref.date,
+            morning_tea: datePref.morningTea,
+            morning_coffee: datePref.morningCoffee,
+            afternoon_tea: datePref.afternoonTea,
+            afternoon_coffee: datePref.afternoonCoffee,
+            breakfast: datePref.breakfast,
+            lunch: datePref.lunch,
+            dinner: datePref.dinner,
+            packed_lunch: datePref.packedLunch,
+            packed_dinner: datePref.packedDinner,
+            departuretime: datePref.departureTime
+          });
+          if (dateError) throw dateError;
+        }
       }
+
+      alert("Registration submitted successfully!");
+      setShowPreview(false);
     } catch (error) {
       console.error('Error submitting registration:', error);
-      alert("Error submitting registration. Please check if the FastAPI server is running.");
+      alert("Error submitting registration: " + (error.message || error));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserButton, useUser } from "@clerk/clerk-react";
+import supabase from '../supabaseClient';
 
 export default function ShaadsSecretSauceVertex() {
   const navigate = useNavigate();
@@ -19,39 +20,79 @@ export default function ShaadsSecretSauceVertex() {
 
   const checkAdminAndFetchData = async () => {
     if (!user?.emailAddresses?.[0]?.emailAddress) return;
-    
+    const email = user.emailAddresses[0].emailAddress;
+
     try {
       // Check admin status
-      const adminResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/check-admin/${user.emailAddresses[0].emailAddress}`);
-      if (adminResponse.ok) {
-        const adminData = await adminResponse.json();
-        if (!adminData.is_admin) {
-          navigate('/');
-          return;
-        }
-        setControlType(adminData.control_type);
+      const { data: adminData, error: adminError } = await supabase
+        .from('admins')
+        .select('control_type')
+        .eq('email', email)
+        .single();
+
+      if (adminError || !adminData) {
+        navigate('/');
+        return;
       }
+      setControlType(adminData.control_type);
 
       // Fetch all registrations
-      const regResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/all-registrations`);
-      if (regResponse.ok) {
-        const regData = await regResponse.json();
-        setRegistrations(regData.registrations || []);
-      }
+      const { data: regs } = await supabase.from('event_registrations').select('*');
+      const { data: dates } = await supabase.from('event_dates').select('*');
 
-      // Fetch analytics
-      const analyticsResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/analytics`);
-      if (analyticsResponse.ok) {
-        const analyticsData = await analyticsResponse.json();
-        setAnalytics(analyticsData.analytics || []);
-      }
+      const combined = (regs || []).map(reg => ({
+        ...reg,
+        datePreferences: (dates || []).filter(d => d.name === reg.name && d.email_id === reg.bookers_email)
+      }));
+      setRegistrations(combined);
 
-      // Fetch detailed analytics
-      const detailedResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/admin/detailed-analytics`);
-      if (detailedResponse.ok) {
-        const detailedData = await detailedResponse.json();
-        setDetailedAnalytics(detailedData);
-      }
+      // Analytics: group event_dates by date
+      const dateMap = {};
+      (dates || []).forEach(d => {
+        if (!dateMap[d.date]) dateMap[d.date] = {
+          date: d.date,
+          morning_tea_with: 0, morning_tea_without: 0,
+          morning_coffee_with: 0, morning_coffee_without: 0,
+          afternoon_tea_with: 0, afternoon_tea_without: 0,
+          afternoon_coffee_with: 0, afternoon_coffee_without: 0,
+          breakfast_count: 0, lunch_count: 0, dinner_count: 0
+        };
+        const entry = dateMap[d.date];
+        if (d.morning_tea === 'with') entry.morning_tea_with++;
+        if (d.morning_tea === 'without') entry.morning_tea_without++;
+        if (d.morning_coffee === 'with') entry.morning_coffee_with++;
+        if (d.morning_coffee === 'without') entry.morning_coffee_without++;
+        if (d.afternoon_tea === 'with') entry.afternoon_tea_with++;
+        if (d.afternoon_tea === 'without') entry.afternoon_tea_without++;
+        if (d.afternoon_coffee === 'with') entry.afternoon_coffee_with++;
+        if (d.afternoon_coffee === 'without') entry.afternoon_coffee_without++;
+        if (d.breakfast) entry.breakfast_count++;
+        if (d.lunch) entry.lunch_count++;
+        if (d.dinner) entry.dinner_count++;
+      });
+      setAnalytics(Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date)));
+
+      // Detailed analytics
+      const accommodations = [];
+      (regs || []).forEach(reg => {
+        if (reg.accommodation) {
+          (reg.attending_dates || []).forEach(date => {
+            accommodations.push({ date, name: reg.name, age: reg.age, gender: reg.gender, origin: reg.origin, bookers_email: reg.bookers_email, contact: reg.contact });
+          });
+        }
+      });
+      accommodations.sort((a, b) => a.date.localeCompare(b.date));
+
+      const cots = (regs || []).filter(r => r.cot_required).map(r => ({ name: r.name, age: r.age, gender: r.gender, origin: r.origin, bookers_email: r.bookers_email, contact: r.contact }));
+      const recordings = (regs || []).filter(r => r.recordings && r.recordprograms).map(r => ({ name: r.name, bookers_email: r.bookers_email, contact: r.contact, recordprograms: r.recordprograms }));
+      const special_requests = (regs || []).filter(r => r.specialrequests).map(r => ({ name: r.name, bookers_email: r.bookers_email, contact: r.contact, specialrequests: r.specialrequests }));
+
+      const packed_meals = (dates || []).filter(d => d.packed_lunch || d.packed_dinner).map(d => {
+        const reg = (regs || []).find(r => r.bookers_email === d.email_id && r.name === d.name);
+        return { date: d.date, name: d.name, bookers_email: d.email_id, contact: d.contact, age: reg?.age, origin: reg?.origin, packed_lunch: d.packed_lunch, packed_dinner: d.packed_dinner };
+      });
+
+      setDetailedAnalytics({ accommodations, cots, recordings, special_requests, packed_meals });
     } catch (error) {
       console.error('Error fetching admin data:', error);
     } finally {
@@ -60,20 +101,58 @@ export default function ShaadsSecretSauceVertex() {
   };
 
   const updateRegistration = async (index) => {
-    const registration = registrations[index];
+    const reg = registrations[index];
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/update-registration`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(registration)
-      });
+      const { error: regError } = await supabase
+        .from('event_registrations')
+        .update({
+          age: reg.age,
+          gender: reg.gender,
+          origin: reg.origin,
+          travelmode: reg.travelmode,
+          departure_from_home: reg.departure_from_home,
+          arrival_at_venue: reg.arrival_at_venue,
+          accommodation: reg.accommodation,
+          cot_required: reg.cot_required,
+          difficultyclimbingstairs: reg.difficultyclimbingstairs,
+          localassistance: reg.localassistance,
+          localassistanceperson: reg.localassistanceperson,
+          recordings: reg.recordings,
+          recordprograms: reg.recordprograms,
+          specialrequests: reg.specialrequests
+        })
+        .eq('bookers_email', reg.bookers_email)
+        .eq('bookers_phone', reg.bookers_phone)
+        .eq('name', reg.name);
 
-      if (response.ok) {
-        alert('✅ Registration updated successfully!');
-        setEditingIndex(-1);
-      } else {
-        alert('❌ Failed to update registration');
+      if (regError) throw regError;
+
+      if (reg.datePreferences?.length) {
+        for (const dp of reg.datePreferences) {
+          const { error: dateError } = await supabase
+            .from('event_dates')
+            .update({
+              morning_tea: dp.morning_tea,
+              morning_coffee: dp.morning_coffee,
+              afternoon_tea: dp.afternoon_tea,
+              afternoon_coffee: dp.afternoon_coffee,
+              breakfast: dp.breakfast,
+              lunch: dp.lunch,
+              dinner: dp.dinner,
+              packed_lunch: dp.packed_lunch,
+              packed_dinner: dp.packed_dinner,
+              departuretime: dp.departuretime
+            })
+            .eq('email_id', dp.email_id)
+            .eq('contact', dp.contact)
+            .eq('name', dp.name)
+            .eq('date', dp.date);
+          if (dateError) throw dateError;
+        }
       }
+
+      alert('✅ Registration updated successfully!');
+      setEditingIndex(-1);
     } catch (error) {
       console.error('Error updating registration:', error);
       alert('❌ Error updating registration');
@@ -81,26 +160,19 @@ export default function ShaadsSecretSauceVertex() {
   };
 
   const deleteRegistration = async (index) => {
-    const registration = registrations[index];
-    if (!confirm(`Are you sure you want to delete registration for ${registration.name}?`)) return;
+    const reg = registrations[index];
+    if (!confirm(`Are you sure you want to delete registration for ${reg.name}?`)) return;
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/delete-registration`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookers_email: registration.bookers_email,
-          bookers_phone: registration.bookers_phone,
-          name: registration.name
-        })
-      });
+      await supabase.from('event_dates').delete().eq('email_id', reg.bookers_email).eq('name', reg.name);
+      const { error } = await supabase.from('event_registrations').delete()
+        .eq('bookers_email', reg.bookers_email)
+        .eq('bookers_phone', reg.bookers_phone)
+        .eq('name', reg.name);
+      if (error) throw error;
 
-      if (response.ok) {
-        alert('✅ Registration deleted successfully!');
-        checkAdminAndFetchData(); // Refresh data
-      } else {
-        alert('❌ Failed to delete registration');
-      }
+      alert('✅ Registration deleted successfully!');
+      checkAdminAndFetchData();
     } catch (error) {
       console.error('Error deleting registration:', error);
       alert('❌ Error deleting registration');
@@ -120,6 +192,118 @@ export default function ShaadsSecretSauceVertex() {
       newDatePrefs[dateIndex] = { ...newDatePrefs[dateIndex], [field]: value };
       return { ...reg, datePreferences: newDatePrefs };
     }));
+  };
+
+  const escapeCsvValue = (value) => {
+    if (value === null || value === undefined) return '';
+    const stringValue = String(value);
+    if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+  };
+
+  const downloadRegistrationsExcel = () => {
+    // Sheet 1: Event Dates with Daily Preferences
+    const dateHeaders = [
+      'Date', 'Person Name', 'Email', 'Phone', 'Contact Number',
+      'Cot Required', 'Morning Tea', 'Morning Coffee', 'Afternoon Tea', 'Afternoon Coffee',
+      'Breakfast', 'Lunch', 'Dinner', 'Packed Lunch', 'Packed Dinner', 'Departure Time'
+    ];
+
+    const dateRows = [];
+    registrations.forEach((reg) => {
+      const datePrefs = reg.datePreferences || [];
+      datePrefs.forEach((dp) => {
+        dateRows.push({
+          Date: dp.date || '',
+          'Person Name': reg.name || '',
+          Email: reg.bookers_email || '',
+          Phone: reg.bookers_phone || '',
+          'Contact Number': reg.contact || '',
+          'Cot Required': reg.cot_required ? 'Yes' : 'No',
+          'Morning Tea': dp.morning_tea ? (dp.morning_tea === 'with' ? 'With Sugar' : 'Without Sugar') : 'No',
+          'Morning Coffee': dp.morning_coffee ? (dp.morning_coffee === 'with' ? 'With Sugar' : 'Without Sugar') : 'No',
+          'Afternoon Tea': dp.afternoon_tea ? (dp.afternoon_tea === 'with' ? 'With Sugar' : 'Without Sugar') : 'No',
+          'Afternoon Coffee': dp.afternoon_coffee ? (dp.afternoon_coffee === 'with' ? 'With Sugar' : 'Without Sugar') : 'No',
+          'Breakfast': dp.breakfast ? 'Yes' : 'No',
+          'Lunch': dp.lunch ? 'Yes' : 'No',
+          'Dinner': dp.dinner ? 'Yes' : 'No',
+          'Packed Lunch': dp.packed_lunch ? 'Yes' : 'No',
+          'Packed Dinner': dp.packed_dinner ? 'Yes' : 'No',
+          'Departure Time': dp.departuretime || ''
+        });
+      });
+    });
+
+    // Sheet 2: Attendee Details
+    const attendeeHeaders = [
+      'Name', 'Email', 'Phone', 'Contact Number', 'Gender', 'Origin',
+      'Travel Mode', 'Departure from Home', 'Arrival at Venue',
+      'Local Assistance Needed', 'Local Assistance Person',
+      'Difficulty Climbing Stairs', 'Recordings Required', 'Recording Programs',
+      'Special Requests', 'Attending Dates', 'Event Name'
+    ];
+
+    const attendeeRows = registrations.map((reg) => ({
+      'Name': reg.name || '',
+      'Email': reg.bookers_email || '',
+      'Phone': reg.bookers_phone || '',
+      'Contact Number': reg.contact || '',
+      'Gender': reg.gender || '',
+      'Origin': reg.origin || '',
+      'Travel Mode': reg.travelmode || '',
+      'Departure from Home': reg.departure_from_home || '',
+      'Arrival at Venue': reg.arrival_at_venue || '',
+      'Local Assistance Needed': reg.localassistance ? 'Yes' : 'No',
+      'Local Assistance Person': reg.localassistanceperson || '',
+      'Difficulty Climbing Stairs': reg.difficultyclimbingstairs ? 'Yes' : 'No',
+      'Recordings Required': reg.recordings ? 'Yes' : 'No',
+      'Recording Programs': reg.recordprograms || '',
+      'Special Requests': reg.specialrequests || '',
+      'Attending Dates': Array.isArray(reg.attending_dates) ? reg.attending_dates.join(' | ') : reg.attending_dates || '',
+      'Event Name': reg.event_name || ''
+    }));
+
+    // Create CSV content for both sheets
+    const sheet1CSV = [
+      dateHeaders.join(','),
+      ...dateRows.map((row) => dateHeaders.map((field) => escapeCsvValue(row[field])).join(','))
+    ].join('\n');
+
+    const sheet2CSV = [
+      attendeeHeaders.join(','),
+      ...attendeeRows.map((row) => attendeeHeaders.map((field) => escapeCsvValue(row[field])).join(','))
+    ].join('\n');
+
+    // For better compatibility, create a single professional Excel-style CSV with sheet tabs
+    // Or create two separate downloads
+    
+    // Create Sheet 1 (Event Dates)
+    const blob1 = new Blob([sheet1CSV], { type: 'text/csv;charset=utf-8;' });
+    const url1 = URL.createObjectURL(blob1);
+    const link1 = document.createElement('a');
+    link1.href = url1;
+    link1.download = `event-dates-preferences_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link1);
+    link1.click();
+    document.body.removeChild(link1);
+    URL.revokeObjectURL(url1);
+
+    // Create Sheet 2 (Attendee Details) with slight delay
+    setTimeout(() => {
+      const blob2 = new Blob([sheet2CSV], { type: 'text/csv;charset=utf-8;' });
+      const url2 = URL.createObjectURL(blob2);
+      const link2 = document.createElement('a');
+      link2.href = url2;
+      link2.download = `attendee-details_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link2);
+      link2.click();
+      document.body.removeChild(link2);
+      URL.revokeObjectURL(url2);
+    }, 500);
+
+    alert('✅ Excel reports downloaded successfully!\n\n📋 2 files created:\n1. event-dates-preferences\n2. attendee-details');
   };
 
   if (loading) {
@@ -180,6 +364,12 @@ export default function ShaadsSecretSauceVertex() {
             }`}
           >
             👥 All Registrations ({registrations.length})
+          </button>
+          <button
+            onClick={downloadRegistrationsExcel}
+            className="px-6 py-3 rounded-lg font-medium transition-colors bg-emerald-500 text-white hover:bg-emerald-400"
+          >
+            ⬇️ Download Excel
           </button>
         </div>
 
@@ -342,6 +532,15 @@ export default function ShaadsSecretSauceVertex() {
                             <h4 className="text-lg font-semibold mb-4 text-white">📋 Basic Information</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                               <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Event Name</label>
+                                <input
+                                  type="text"
+                                  value={reg.event_name || ''}
+                                  onChange={(e) => updateField(index, 'event_name', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-1">Name</label>
                                 <input
                                   type="text"
@@ -373,6 +572,15 @@ export default function ShaadsSecretSauceVertex() {
                                 </select>
                               </div>
                               <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Contact</label>
+                                <input
+                                  type="text"
+                                  value={reg.contact || ''}
+                                  onChange={(e) => updateField(index, 'contact', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-1">Origin</label>
                                 <input
                                   type="text"
@@ -381,6 +589,118 @@ export default function ShaadsSecretSauceVertex() {
                                   className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
                                 />
                               </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Travel Mode</label>
+                                <input
+                                  type="text"
+                                  value={reg.travelmode || ''}
+                                  onChange={(e) => updateField(index, 'travelmode', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Departure from Home</label>
+                                <input
+                                  type="text"
+                                  value={reg.departure_from_home || ''}
+                                  onChange={(e) => updateField(index, 'departure_from_home', e.target.value)}
+                                  placeholder="HH:MM"
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Arrival at Venue</label>
+                                <input
+                                  type="text"
+                                  value={reg.arrival_at_venue || ''}
+                                  onChange={(e) => updateField(index, 'arrival_at_venue', e.target.value)}
+                                  placeholder="HH:MM"
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                              <label className="flex items-center p-3 border border-white/20 rounded-lg bg-gray-800/70">
+                                <input
+                                  type="checkbox"
+                                  checked={reg.accommodation || false}
+                                  onChange={(e) => updateField(index, 'accommodation', e.target.checked)}
+                                  className="mr-2 h-4 w-4 text-purple-600"
+                                />
+                                <span className="text-white">Accommodation needed</span>
+                              </label>
+                              <label className="flex items-center p-3 border border-white/20 rounded-lg bg-gray-800/70">
+                                <input
+                                  type="checkbox"
+                                  checked={reg.cot_required || false}
+                                  onChange={(e) => updateField(index, 'cot_required', e.target.checked)}
+                                  className="mr-2 h-4 w-4 text-purple-600"
+                                />
+                                <span className="text-white">Cot required</span>
+                              </label>
+                              <label className="flex items-center p-3 border border-white/20 rounded-lg bg-gray-800/70">
+                                <input
+                                  type="checkbox"
+                                  checked={reg.difficultyclimbingstairs || false}
+                                  onChange={(e) => updateField(index, 'difficultyclimbingstairs', e.target.checked)}
+                                  className="mr-2 h-4 w-4 text-purple-600"
+                                />
+                                <span className="text-white">Difficulty climbing stairs</span>
+                              </label>
+                              <label className="flex items-center p-3 border border-white/20 rounded-lg bg-gray-800/70">
+                                <input
+                                  type="checkbox"
+                                  checked={reg.localassistance || false}
+                                  onChange={(e) => updateField(index, 'localassistance', e.target.checked)}
+                                  className="mr-2 h-4 w-4 text-purple-600"
+                                />
+                                <span className="text-white">Local assistance needed</span>
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Local Assistance Person</label>
+                                <input
+                                  type="text"
+                                  value={reg.localassistanceperson || ''}
+                                  onChange={(e) => updateField(index, 'localassistanceperson', e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">Recordings</label>
+                                <label className="flex items-center gap-3 p-3 border border-white/20 rounded-lg bg-gray-800/70">
+                                  <input
+                                    type="checkbox"
+                                    checked={reg.recordings || false}
+                                    onChange={(e) => updateField(index, 'recordings', e.target.checked)}
+                                    className="h-4 w-4 text-purple-600"
+                                  />
+                                  <span className="text-white">Recording requested</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            <div className="mt-6">
+                              <label className="block text-sm font-medium text-gray-300 mb-1">Recording Programs</label>
+                              <input
+                                type="text"
+                                value={reg.recordprograms || ''}
+                                onChange={(e) => updateField(index, 'recordprograms', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                              />
+                            </div>
+
+                            <div className="mt-6">
+                              <label className="block text-sm font-medium text-gray-300 mb-1">Special Requests</label>
+                              <textarea
+                                value={reg.specialrequests || ''}
+                                onChange={(e) => updateField(index, 'specialrequests', e.target.value)}
+                                rows={4}
+                                className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-white focus:ring-2 focus:ring-purple-500"
+                              />
                             </div>
                           </div>
 
@@ -474,6 +794,37 @@ export default function ShaadsSecretSauceVertex() {
                                         />
                                         <span className="text-white">🍛 Dinner</span>
                                       </label>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                      <label className="flex items-center p-2 border border-white/20 rounded hover:bg-white/5">
+                                        <input
+                                          type="checkbox"
+                                          checked={datePref.packed_lunch || false}
+                                          onChange={(e) => updateDatePreference(index, dateIndex, 'packed_lunch', e.target.checked)}
+                                          className="mr-2 h-4 w-4 text-purple-600"
+                                        />
+                                        <span className="text-white">🥡 Packed Lunch</span>
+                                      </label>
+                                      <label className="flex items-center p-2 border border-white/20 rounded hover:bg-white/5">
+                                        <input
+                                          type="checkbox"
+                                          checked={datePref.packed_dinner || false}
+                                          onChange={(e) => updateDatePreference(index, dateIndex, 'packed_dinner', e.target.checked)}
+                                          className="mr-2 h-4 w-4 text-purple-600"
+                                        />
+                                        <span className="text-white">🥘 Packed Dinner</span>
+                                      </label>
+                                      <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-1">Departure Time</label>
+                                        <input
+                                          type="text"
+                                          value={datePref.departuretime || ''}
+                                          onChange={(e) => updateDatePreference(index, dateIndex, 'departuretime', e.target.value)}
+                                          placeholder="HH:MM"
+                                          className="w-full px-2 py-1 border border-gray-600 rounded text-sm bg-gray-700 text-white"
+                                        />
+                                      </div>
                                     </div>
                                   </div>
                                 ))}
